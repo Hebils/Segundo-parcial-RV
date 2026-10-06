@@ -72,8 +72,9 @@ a-scene{position:fixed!important;inset:0;z-index:1}
   <div style="font-size:60px">🦜</div>
   <h1>Aves<span>GO</span></h1>
   <p><b>Aves del campus UAO</b><br>Camina por la universidad, encuentra aves en tu cámara y tócalas para registrarlas en tu álbum. Después responde un mini quiz.</p>
-  <p style="font-size:13px">Necesitamos tu cámara, tu ubicación (GPS) y la brújula del celular.</p>
-  <button class="btn" id="go">Empezar</button>
+  <p style="font-size:13px"><b>Es obligatorio aceptar los permisos de cámara y ubicación (GPS)</b>, y la brújula del celular, para jugar.</p>
+  <div id="perms" style="display:none;background:#0B2A4Acc;border:2px solid var(--cream);border-radius:14px;padding:12px 16px;text-align:left;font-size:14px;max-width:420px;line-height:1.7"><div id="pc"></div><div id="pg"></div><div id="po"></div><div id="permHelp" style="margin-top:6px;font-size:13px"></div></div>
+  <button class="btn" id="go">Permitir cámara y ubicación · Empezar</button>
   <button class="btn alt" id="goTest">Modo prueba (sin GPS)</button>
   <button class="btn alt" id="resetBtn" style="font-size:12px;padding:6px 12px">Borrar progreso</button>
 </div>
@@ -166,9 +167,8 @@ function onOri(e){if(e.alpha==null||e.beta==null)return;let a=e.alpha;
  const o=(screen.orientation&&screen.orientation.angle||window.orientation||0)*D2R;
  eu.set(e.beta*D2R,a*D2R,-e.gamma*D2R,"YXZ");sQ.setFromEuler(eu);sQ.multiply(q1);sQ.multiply(q0.setFromAxisAngle(zee,-o));
  if(!hasSensor){hasSensor=true;cam.setAttribute("look-controls","enabled",false)}}
-async function startSensors(){try{if(window.DeviceOrientationEvent&&DeviceOrientationEvent.requestPermission){const r=await DeviceOrientationEvent.requestPermission();if(r!=="granted")toast("Sin brújula: gira arrastrando el dedo")}}catch(e){}
- addEventListener("ondeviceorientationabsolute"in window?"deviceorientationabsolute":"deviceorientation",onOri,true)}
-async function startCam(){try{const s=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:"environment"}},audio:false});const v=$("#cam");v.srcObject=s;await v.play().catch(()=>{})}catch(e){toast("No pude abrir la cámara. Revisa permisos (HTTPS).",4000)}}
+function startSensors(){addEventListener("ondeviceorientationabsolute"in window?"deviceorientationabsolute":"deviceorientation",onOri,true)}
+async function attachCam(s){const v=$("#cam");v.srcObject=s;try{await v.play()}catch(e){}}
 function startGPS(){if(!navigator.geolocation){toast("Tu navegador no tiene GPS. Usa el Modo prueba.",4000);return}
  navigator.geolocation.watchPosition(p=>{const {latitude:la,longitude:lo,accuracy:ac}=p.coords;acc=ac;
   if(!origin){origin={la,lo};const d=Math.hypot((la-CAMPUS.lat)*110540,(lo-CAMPUS.lon)*111320*Math.cos(la*D2R));
@@ -176,8 +176,29 @@ function startGPS(){if(!navigator.geolocation){toast("Tu navegador no tiene GPS.
    spawn(6);$("#status").textContent="Aves cerca · GPS ±"+(ac|0)+" m"}
   tgt.x=(lo-origin.lo)*111320*Math.cos(origin.la*D2R);tgt.z=-(la-origin.la)*110540;$("#status").textContent="GPS ±"+(ac|0)+" m · "+wild.length+" aves cerca"},
   err=>{$("#status").textContent="Sin GPS";toast("Activa la ubicación o usa el Modo prueba",4000)},{enableHighAccuracy:true,maximumAge:1000,timeout:20000})}
-async function begin(test){TEST=test;started=true;$("#start").classList.remove("on");$("#hud").classList.add("on");sfx.chirp();
- await startSensors();startCam();
+const row=(id,txt,ok)=>{const e=$(id);e.textContent=txt;e.style.color=ok===true?"#9be7a8":ok===false?"#ffb3b3":"#F9F8E7"};
+async function askPerms(test){
+ $("#perms").style.display="block";$("#permHelp").textContent="";
+ row("#pc","📷 Cámara: esperando tu permiso…");row("#pg","📍 Ubicación: esperando tu permiso…");row("#po","🧭 Brújula: esperando…");
+ if(!window.isSecureContext){$("#permHelp").textContent="Abre la web con HTTPS (la dirección debe empezar por https://). Sin eso el navegador bloquea la cámara y la ubicación.";row("#pc","📷 Cámara: bloqueada",false);row("#pg","📍 Ubicación: bloqueada",false);return false}
+ // las tres solicitudes salen en el mismo toque del usuario (iOS lo exige)
+ const oriP=(window.DeviceOrientationEvent&&DeviceOrientationEvent.requestPermission)?DeviceOrientationEvent.requestPermission():Promise.resolve("granted");
+ const camP=(navigator.mediaDevices&&navigator.mediaDevices.getUserMedia)?navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:"environment"}},audio:false}):Promise.reject(new Error("nosup"));
+ const gpsP=test?Promise.resolve("test"):new Promise((res,rej)=>navigator.geolocation?navigator.geolocation.getCurrentPosition(res,rej,{enableHighAccuracy:true,timeout:30000,maximumAge:0}):rej(new Error("nosup")));
+ const [o,c,g]=await Promise.allSettled([oriP,camP,gpsP]);
+ const cOk=c.status==="fulfilled",gOk=g.status==="fulfilled",oOk=o.status==="fulfilled"&&o.value==="granted";
+ row("#pc",cOk?"📷 Cámara: lista ✅":"📷 Cámara: NO permitida ❌",cOk);
+ row("#pg",test?"📍 Ubicación: no necesaria (modo prueba)":gOk?"📍 Ubicación: lista ✅":"📍 Ubicación: NO permitida ❌",test?true:gOk);
+ row("#po",oOk?"🧭 Brújula: lista ✅":"🧭 Brújula: no disponible (puedes girar con el dedo)",oOk?true:null);
+ if(cOk)await attachCam(c.value);
+ if(oOk)startSensors();
+ if(!cOk||(!test&&!gOk)){
+  $("#permHelp").innerHTML="<b>Necesitamos "+(!cOk&&!gOk&&!test?"la cámara y la ubicación":!cOk?"la cámara":"la ubicación")+" para jugar.</b><br>Toca el candado 🔒 junto a la dirección de la web → Permisos → <b>Permitir</b> cámara y ubicación, y pulsa «Reintentar». En el celular también activa el GPS del dispositivo.";
+  $("#go").textContent="Reintentar permisos";return false}
+ return true}
+async function begin(test){if(started)return;
+ const ok=await askPerms(test);if(!ok&&!test)return;
+ TEST=test;started=true;$("#start").classList.remove("on");$("#hud").classList.add("on");sfx.chirp();
  if(test){$("#walk").classList.add("on");origin={la:0,lo:0};spawn(6);$("#status").textContent="MODO PRUEBA · arrastra para mirar, ▲▼ para caminar"}else startGPS()}
 $("#go").onclick=()=>begin(false);$("#goTest").onclick=()=>begin(true);
 $("#resetBtn").onclick=()=>{if(confirm("¿Borrar tu álbum?")){save={};store()}};
