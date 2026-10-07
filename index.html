@@ -48,6 +48,21 @@ a-scene{position:fixed!important;inset:0;z-index:1}
 #sheet h2{margin:0 0 2px}#sheet i{color:var(--blue)}
 .opt{display:block;width:100%;text-align:left;background:#fff;border:2px solid var(--blue);color:var(--navy);padding:12px;border-radius:12px;margin:8px 0;font-weight:600}
 .opt.ok{background:#2f9e5b;color:#fff;border-color:#2f9e5b}.opt.bad{background:var(--red);color:#fff;border-color:var(--red)}
+#hud.on{display:flex;flex-direction:column}
+#hud button{pointer-events:auto}
+#top{position:relative;flex:none;gap:6px}
+#status{position:relative;top:auto;left:auto;transform:none;align-self:center;margin-top:8px;max-width:92%;white-space:normal;text-align:center;flex:none}
+#mid{flex:1;min-height:0}
+#toast{position:relative;left:auto;bottom:auto;transform:none;align-self:center;margin:0 12px 8px;flex:none}
+#bar{flex:none;display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:end;gap:10px;padding:0 max(12px,env(safe-area-inset-left)) calc(12px + env(safe-area-inset-bottom)) max(12px,env(safe-area-inset-right))}
+#radar{position:relative;left:auto;bottom:auto;width:clamp(84px,24vmin,120px);height:auto;aspect-ratio:1/1;pointer-events:none}
+#capwrap{display:flex;justify-content:center;align-items:flex-end;min-width:0}
+#capture{display:none;background:var(--red);color:#fff;font-weight:800;font-size:clamp(14px,4vmin,18px);padding:14px 18px;border-radius:999px;border:4px solid #fff;box-shadow:0 4px 0 #8d0a20;animation:pulse 1s infinite;max-width:100%}
+@keyframes pulse{50%{box-shadow:0 4px 0 #8d0a20,0 0 0 10px #ffffff66}}
+#walk{position:relative;right:auto;bottom:auto;display:none;flex-direction:column;gap:8px}
+#walk.on{display:flex}
+.walk{width:clamp(48px,13vmin,64px);height:clamp(48px,13vmin,64px)}
+@media (max-height:520px){#walk.on{flex-direction:row}#top{padding-top:calc(4px + env(safe-area-inset-top));padding-bottom:4px}#status{margin-top:4px;font-size:12px}}
 </style>
 </head>
 <body>
@@ -61,12 +76,16 @@ a-scene{position:fixed!important;inset:0;z-index:1}
 </a-scene>
 
 <div id="hud">
-  <div id="top"><b>🦜 AvesGO UAO</b><span style="display:flex;gap:8px;align-items:center"><span class="chip" id="count">0/16</span><button class="btn alt" id="albumBtn" style="padding:6px 14px">📖 Álbum</button></span></div>
+  <div id="top"><b>🦜 AvesGO UAO</b><span style="display:flex;gap:6px;align-items:center"><span class="chip" id="count">0/16</span><button class="chip" id="fsBtn" title="Pantalla completa">⛶</button><button class="btn alt" id="albumBtn" style="padding:6px 12px">📖 Álbum</button></span></div>
   <div id="status">Buscando aves…</div>
   <div id="reticle"></div>
+  <div id="mid"></div>
   <div id="toast"></div>
-  <canvas id="radar" width="240" height="240"></canvas>
-  <div id="walk"><button class="walk" id="wf">▲</button><button class="walk" id="wb">▼</button></div>
+  <div id="bar">
+    <canvas id="radar" width="240" height="240"></canvas>
+    <div id="capwrap"><button id="capture">🪢 ¡CAPTURAR!</button></div>
+    <div id="walk"><button class="walk" id="wf">▲</button><button class="walk" id="wb">▼</button></div>
+  </div>
 </div>
 
 <div id="start" class="full on">
@@ -111,7 +130,7 @@ const THREE=window.AFRAME?AFRAME.THREE:null,D2R=Math.PI/180;
 function showErr(m){const e=document.getElementById("err");if(e){e.style.display="block";e.textContent="⚠️ "+m}}
 addEventListener("error",e=>showErr((e.message||"Error")+" ("+(e.filename||"").split("/").pop()+":"+e.lineno+")"));
 addEventListener("unhandledrejection",e=>showErr(String(e.reason&&e.reason.message||e.reason)));
-const KEY="avesuao_v2",RANGE=25;
+const KEY="avesuao_v2",RANGE=25,REVEAL=35;
 const CAMPUS={lat:3.3530,lon:-76.5195,r:1200}; // centro aprox. del campus UAO (ajustable)
 let save=JSON.parse(localStorage.getItem(KEY)||"{}");
 const $=s=>document.querySelector(s);
@@ -138,31 +157,48 @@ function makeBird(b,x,z){const r=mk("a-entity",{class:"bird",position:`${x} 1.2 
  const wl=mk("a-entity",{position:"-.75 1 0"},g),wr=mk("a-entity",{position:".75 1 0"},g);
  mk("a-sphere",{radius:.6,scale:".15 .7 1.1",color:c1,position:"-.1 0 0"},wl);mk("a-sphere",{radius:.6,scale:".15 .7 1.1",color:c1,position:".1 0 0"},wr);
  mk("a-sphere",{radius:1.8,material:"opacity:0;transparent:true;depthWrite:false",position:"0 .5 0"},r); // zona de toque grande
- const w={b,ent:r,g,wl,wr,x,z,ph:Math.random()*6,gone:false};
- r.addEventListener("click",()=>tapBird(w));return w}
+ const w={b,ent:r,g,wl,wr,x,z,ph:Math.random()*6,gone:false,shown:false,k:0};
+ r.object3D.visible=false;r.addEventListener("click",()=>tapBird(w));return w}
 function spawn(n){const have=new Set(wild.map(w=>w.b.id));
  while(wild.length<n){let pool=BIRDS.filter(b=>!have.has(b.id));if(!pool.length)pool=BIRDS;
   const un=pool.filter(b=>!save[b.id]),src=(un.length&&Math.random()<.7)?un:pool,b=src[Math.random()*src.length|0];
-  have.add(b.id);const rr=TEST?6+Math.random()*12:12+Math.random()*38,an=Math.random()*6.283;
+  have.add(b.id);const rr=TEST?20+Math.random()*40:25+Math.random()*85,an=Math.random()*6.283;
   wild.push(makeBird(b,pos.x+Math.cos(an)*rr,pos.z+Math.sin(an)*rr))}}
-function tapBird(w){if(w.gone||$("#modal").classList.contains("on"))return;const d=Math.hypot(w.x-pos.x,w.z-pos.z);
+function tapBird(w){if(w.gone||!w.shown||$("#modal").classList.contains("on"))return;const d=Math.hypot(w.x-pos.x,w.z-pos.z);
  if(!TEST&&d>RANGE){sfx.bad();return toast(`${w.b.es} está a ${d|0} m. ¡Acércate a menos de ${RANGE} m!`)}
  w.gone=true;sfx.ok();w.ent.setAttribute("animation","property:scale;to:0.01 0.01 0.01;dur:600;easing:easeInBack");
  toast("¡Registrada! 🎉",1200);setTimeout(()=>{w.ent.remove();wild=wild.filter(x=>x!==w);quiz(w.b)},650)}
 /* ---------- bucle del juego ---------- */
 const eu=THREE&&new THREE.Euler(),sQ=THREE&&new THREE.Quaternion(),q1=THREE&&new THREE.Quaternion(-Math.SQRT1_2,0,0,Math.SQRT1_2),q0=THREE&&new THREE.Quaternion(),zee=THREE&&new THREE.Vector3(0,0,1),fw=THREE&&new THREE.Vector3();
+let target=null,hintT=0;
+function setTarget(w){if(w===target)return;target=w;const b=$("#capture");
+ if(w){b.style.display="block";b.textContent="🪢 ¡CAPTURAR "+w.b.es.toUpperCase()+"!";$("#reticle").style.background="#C8102E"}else{b.style.display="none";$("#reticle").style.background="#fff8"}}
+function setStatus(hid){const base=TEST?"MODO PRUEBA":(acc!=null?"GPS ±"+(acc|0)+" m":"Buscando GPS…"),n=wild.filter(w=>w.shown&&!w.gone).length;
+ const h=n?`${n} ave${n>1?"s":""} a la vista`:hid<60?`🔊 Se escucha un ave… a unos ${Math.max(5,Math.round(hid/5)*5)} m`:"Explora el campus para encontrar aves";
+ $("#status").textContent=base+" · "+h}
 if(window.AFRAME)AFRAME.registerComponent("game",{tick(t,dt){if(!started)return;dt/=1000;const o=cam.object3D;
  if(hasSensor)o.quaternion.copy(sQ);
- if(TEST&&walk){o.getWorldDirection(fw);tgt.x-=fw.x*walk*4*dt;tgt.z-=fw.z*walk*4*dt}
+ o.getWorldDirection(fw);const fh=Math.hypot(fw.x,fw.z)||1,fx=-fw.x/fh,fz=-fw.z/fh;
+ if(TEST&&walk){tgt.x+=fx*walk*4*dt;tgt.z+=fz*walk*4*dt}
  pos.x+=(tgt.x-pos.x)*Math.min(1,dt*3);pos.z+=(tgt.z-pos.z)*Math.min(1,dt*3);o.position.set(pos.x,1.6,pos.z);
- wild.forEach(w=>{const d=Math.hypot(w.x-pos.x,w.z-pos.z),s=Math.max(1,d/14);w.ph+=dt;
-  w.ent.object3D.position.set(w.x,1.2+Math.sin(w.ph*2)*.25,w.z);w.ent.object3D.scale.setScalar(w.gone?w.ent.object3D.scale.x:s);
-  w.ent.object3D.rotation.y=Math.atan2(pos.x-w.x,pos.z-w.z);const f=Math.sin(w.ph*14)*.7;w.wl.object3D.rotation.z=f;w.wr.object3D.rotation.z=-f});
+ let best=null,bc=.82,hid=1e9;
+ wild.forEach(w=>{const dx=w.x-pos.x,dz=w.z-pos.z,d=Math.hypot(dx,dz),ob=w.ent.object3D;w.ph+=dt;
+  if(!w.gone){
+   if(!w.shown&&d<=REVEAL){w.shown=true;w.k=0;sfx.chirp();toast("¡"+w.b.es+" cerca! Acércate y apúntale con la cámara",3000)}
+   else if(w.shown&&d>REVEAL+15)w.shown=false;
+   if(!w.shown&&d<hid)hid=d;
+   w.k=w.shown?Math.min(1,w.k+dt*2):0;
+   ob.scale.setScalar(Math.max(.01,Math.max(1,d/14)*w.k));
+   if(w.shown&&d<=RANGE){const cs=(dx*fx+dz*fz)/(d||1);if(cs>bc){bc=cs;best=w}}}
+  ob.visible=w.shown||w.gone;ob.position.set(w.x,1.2+Math.sin(w.ph*2)*.25,w.z);ob.rotation.y=Math.atan2(pos.x-w.x,pos.z-w.z);
+  const f=Math.sin(w.ph*14)*.7;w.wl.object3D.rotation.z=f;w.wr.object3D.rotation.z=-f});
+ setTarget($("#modal").classList.contains("on")?null:best);
+ if((hintT-=dt)<0){hintT=.5;setStatus(hid)}
  radar()}});
 function radar(){const c=$("#radar"),x=c.getContext("2d"),R=120;x.clearRect(0,0,240,240);
  x.strokeStyle="#F9F8E766";x.lineWidth=2;[40,80,115].forEach(r=>{x.beginPath();x.arc(R,R,r,0,7);x.stroke()});
  const y=new THREE.Euler().setFromQuaternion(cam.object3D.quaternion,"YXZ").y,sn=Math.sin(y),cs=Math.cos(y);
- wild.forEach(w=>{const dx=w.x-pos.x,dz=w.z-pos.z,sx=dx*cs-dz*sn,su=dx*-sn+dz*-cs,k=115/60;let px=sx*k,py=-su*k;const m=Math.hypot(px,py);if(m>110){px*=110/m;py*=110/m}
+ wild.filter(w=>w.shown&&!w.gone).forEach(w=>{const dx=w.x-pos.x,dz=w.z-pos.z,sx=dx*cs-dz*sn,su=dx*-sn+dz*-cs,k=115/60;let px=sx*k,py=-su*k;const m=Math.hypot(px,py);if(m>110){px*=110/m;py*=110/m}
   x.beginPath();x.arc(R+px,R+py,9,0,7);x.fillStyle=Math.hypot(dx,dz)<=RANGE||TEST?"#C8102E":"#F9F8E7";x.fill();x.strokeStyle="#fff";x.lineWidth=2;x.stroke()});
  x.fillStyle="#fff";x.beginPath();x.moveTo(R,R-10);x.lineTo(R-7,R+7);x.lineTo(R+7,R+7);x.fill()}
 /* ---------- sensores ---------- */
@@ -178,8 +214,8 @@ function startGPS(){if(!navigator.geolocation){toast("Tu navegador no tiene GPS.
  navigator.geolocation.watchPosition(p=>{const {latitude:la,longitude:lo,accuracy:ac}=p.coords;acc=ac;
   if(!origin){origin={la,lo};const d=Math.hypot((la-CAMPUS.lat)*110540,(lo-CAMPUS.lon)*111320*Math.cos(la*D2R));
    if(d>CAMPUS.r&&!confirm("Parece que no estás en el campus UAO. ¿Jugar de todos modos?")){location.reload();return}
-   spawn(6);$("#status").textContent="Aves cerca · GPS ±"+(ac|0)+" m"}
-  tgt.x=(lo-origin.lo)*111320*Math.cos(origin.la*D2R);tgt.z=-(la-origin.la)*110540;$("#status").textContent="GPS ±"+(ac|0)+" m · "+wild.length+" aves cerca"},
+   spawn(6);}
+  tgt.x=(lo-origin.lo)*111320*Math.cos(origin.la*D2R);tgt.z=-(la-origin.la)*110540},
   err=>{$("#status").textContent="Sin GPS";toast("Activa la ubicación o usa el Modo prueba",4000)},{enableHighAccuracy:true,maximumAge:1000,timeout:20000})}
 const row=(id,txt,ok)=>{const e=$(id);e.textContent=txt;e.style.color=ok===true?"#9be7a8":ok===false?"#ffb3b3":"#F9F8E7"};
 async function askPerms(test){
@@ -209,6 +245,9 @@ async function begin(test){if(started)return;
 $("#go").addEventListener("click",()=>begin(false));$("#goTest").addEventListener("click",()=>begin(true));
 $("#resetBtn").onclick=()=>{if(confirm("¿Borrar tu álbum?")){save={};store()}};
 [["#wf",1],["#wb",-1]].forEach(([s,v])=>{const b=$(s);b.addEventListener("pointerdown",e=>{e.preventDefault();walk=v});["pointerup","pointerleave","pointercancel"].forEach(n=>b.addEventListener(n,()=>walk=0))});
+$("#capture").addEventListener("click",()=>{if(target)tapBird(target)});
+const fsb=$("#fsBtn");if(!document.documentElement.requestFullscreen)fsb.style.display="none";
+fsb.addEventListener("click",()=>{if(document.fullscreenElement)document.exitFullscreen();else document.documentElement.requestFullscreen().catch(()=>{})});
 /* ---------- quiz ---------- */
 const FAMLIST=[...new Set(BIRDS.map(b=>b.fam))];
 function quiz(b){const others=BIRDS.filter(x=>x.id!==b.id);
