@@ -6,6 +6,7 @@
 <title>AvesGO UAO · Campus para la vida y la biodiversidad</title>
 <meta name="theme-color" content="#C8102E">
 <script src="vendor/aframe.min.js"></script>
+<script>if(!window.AFRAME)document.write('<script src="https://aframe.io/releases/1.6.0/aframe.min.js"><\/script>')</script>
 <style>
 :root{--red:#C8102E;--navy:#0B2A4A;--blue:#307294;--cream:#F9F8E7}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
@@ -73,6 +74,7 @@ a-scene{position:fixed!important;inset:0;z-index:1}
   <h1>Aves<span>GO</span></h1>
   <p><b>Aves del campus UAO</b><br>Camina por la universidad, encuentra aves en tu cámara y tócalas para registrarlas en tu álbum. Después responde un mini quiz.</p>
   <p style="font-size:13px"><b>Es obligatorio aceptar los permisos de cámara y ubicación (GPS)</b>, y la brújula del celular, para jugar.</p>
+  <div id="err" style="display:none;background:#C8102E;color:#fff;border-radius:10px;padding:8px 12px;font-size:12px;max-width:420px"></div>
   <div id="perms" style="display:none;background:#0B2A4Acc;border:2px solid var(--cream);border-radius:14px;padding:12px 16px;text-align:left;font-size:14px;max-width:420px;line-height:1.7"><div id="pc"></div><div id="pg"></div><div id="po"></div><div id="permHelp" style="margin-top:6px;font-size:13px"></div></div>
   <button class="btn" id="go">Permitir cámara y ubicación · Empezar</button>
   <button class="btn alt" id="goTest">Modo prueba (sin GPS)</button>
@@ -105,7 +107,10 @@ const BIRDS=[
 {id:16,es:"Turpial Amarillo",sci:"Icterus nigrogularis",en:"Yellow Oriole",fam:"Icteridae",c:["#f2b705","#f7cf3a","#222",.9],e:"🌟",d:"Oriol de intenso amarillo con garganta y alas negras. Su canto melodioso se oye en árboles del campus.",q:["¿Qué color predomina?","Amarillo","Gris","Café"]}
 ];
 const FAMS=[...new Set(BIRDS.map(b=>b.fam))];
-const THREE=AFRAME.THREE,D2R=Math.PI/180;
+const THREE=window.AFRAME?AFRAME.THREE:null,D2R=Math.PI/180;
+function showErr(m){const e=document.getElementById("err");if(e){e.style.display="block";e.textContent="⚠️ "+m}}
+addEventListener("error",e=>showErr((e.message||"Error")+" ("+(e.filename||"").split("/").pop()+":"+e.lineno+")"));
+addEventListener("unhandledrejection",e=>showErr(String(e.reason&&e.reason.message||e.reason)));
 const KEY="avesuao_v2",RANGE=25;
 const CAMPUS={lat:3.3530,lon:-76.5195,r:1200}; // centro aprox. del campus UAO (ajustable)
 let save=JSON.parse(localStorage.getItem(KEY)||"{}");
@@ -145,8 +150,8 @@ function tapBird(w){if(w.gone||$("#modal").classList.contains("on"))return;const
  w.gone=true;sfx.ok();w.ent.setAttribute("animation","property:scale;to:0.01 0.01 0.01;dur:600;easing:easeInBack");
  toast("¡Registrada! 🎉",1200);setTimeout(()=>{w.ent.remove();wild=wild.filter(x=>x!==w);quiz(w.b)},650)}
 /* ---------- bucle del juego ---------- */
-const eu=new THREE.Euler(),sQ=new THREE.Quaternion(),q1=new THREE.Quaternion(-Math.SQRT1_2,0,0,Math.SQRT1_2),q0=new THREE.Quaternion(),zee=new THREE.Vector3(0,0,1),fw=new THREE.Vector3();
-AFRAME.registerComponent("game",{tick(t,dt){if(!started)return;dt/=1000;const o=cam.object3D;
+const eu=THREE&&new THREE.Euler(),sQ=THREE&&new THREE.Quaternion(),q1=THREE&&new THREE.Quaternion(-Math.SQRT1_2,0,0,Math.SQRT1_2),q0=THREE&&new THREE.Quaternion(),zee=THREE&&new THREE.Vector3(0,0,1),fw=THREE&&new THREE.Vector3();
+if(window.AFRAME)AFRAME.registerComponent("game",{tick(t,dt){if(!started)return;dt/=1000;const o=cam.object3D;
  if(hasSensor)o.quaternion.copy(sQ);
  if(TEST&&walk){o.getWorldDirection(fw);tgt.x-=fw.x*walk*4*dt;tgt.z-=fw.z*walk*4*dt}
  pos.x+=(tgt.x-pos.x)*Math.min(1,dt*3);pos.z+=(tgt.z-pos.z)*Math.min(1,dt*3);o.position.set(pos.x,1.6,pos.z);
@@ -198,9 +203,10 @@ async function askPerms(test){
  return true}
 async function begin(test){if(started)return;
  const ok=await askPerms(test);if(!ok&&!test)return;
+ if(!window.AFRAME){$("#permHelp").innerHTML="<b>No cargó A-Frame.</b> Sube la carpeta <code>vendor/</code> (con aframe.min.js) junto a index.html en GitHub, o revisa tu conexión.";$("#go").textContent="Reintentar";return}
  TEST=test;started=true;$("#start").classList.remove("on");$("#hud").classList.add("on");sfx.chirp();
  if(test){$("#walk").classList.add("on");origin={la:0,lo:0};spawn(6);$("#status").textContent="MODO PRUEBA · arrastra para mirar, ▲▼ para caminar"}else startGPS()}
-$("#go").onclick=()=>begin(false);$("#goTest").onclick=()=>begin(true);
+$("#go").addEventListener("click",()=>begin(false));$("#goTest").addEventListener("click",()=>begin(true));
 $("#resetBtn").onclick=()=>{if(confirm("¿Borrar tu álbum?")){save={};store()}};
 [["#wf",1],["#wb",-1]].forEach(([s,v])=>{const b=$(s);b.addEventListener("pointerdown",e=>{e.preventDefault();walk=v});["pointerup","pointerleave","pointercancel"].forEach(n=>b.addEventListener(n,()=>walk=0))});
 /* ---------- quiz ---------- */
